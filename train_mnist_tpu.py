@@ -76,8 +76,17 @@ test_file_path = "dataset/mnist/test-00000-of-00001.parquet"
 #     operations=[pygrain.Batch(batch_size=batch_size, drop_remainder=True)],
 #     worker_count=num_workers
 # )
+
+input_context = tf.distribute.InputContext(
+    input_pipeline_id=1,  # Worker id
+    num_input_pipelines=4,  # Total number of workers
+)
+read_config = tfds.ReadConfig(
+    input_context=input_context,
+)
+
 split = tfds.split_for_jax_process('train')
-train_ds: tf.data.Dataset = tfds.load('mnist', split=split)
+train_ds: tf.data.Dataset = tfds.load('mnist', split=split, read_config=read_config)
 test_ds: tf.data.Dataset = tfds.load('mnist', split='test')
 
 train_ds = train_ds.map(
