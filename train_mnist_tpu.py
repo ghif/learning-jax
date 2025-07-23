@@ -77,38 +77,34 @@ test_file_path = "dataset/mnist/test-00000-of-00001.parquet"
 #     worker_count=num_workers
 # )
 
-input_context = tf.distribute.InputContext(
-    input_pipeline_id=1,  # Worker id
-    num_input_pipelines=4,  # Total number of workers
-)
-read_config = tfds.ReadConfig(
-    input_context=input_context,
-)
+AUTOTUNE = tf.data.AUTOTUNE
 
 split = tfds.split_for_jax_process('train')
-train_ds: tf.data.Dataset = tfds.load('mnist', split=split, read_config=read_config)
+train_ds: tf.data.Dataset = tfds.load('mnist', split=split)
 test_ds: tf.data.Dataset = tfds.load('mnist', split='test')
 
 train_ds = train_ds.map(
   lambda sample: {
     'image': tf.cast(sample['image'], tf.float32) / 255,
     'label': sample['label'],
-  }
+  },
+  num_parallel_calls=AUTOTUNE
 )  # Normalize train set
 
 test_ds = test_ds.map(
   lambda sample: {
     'image': tf.cast(sample['image'], tf.float32) / 255,
     'label': sample['label'],
-  }
+  },
+  num_parallel_calls=AUTOTUNE
 )  # Normalize the test set
 
 # Create a shuffled dataset by allocating a buffer size of 1024 to randomly draw elements from.
 train_ds = train_ds.repeat(num_epochs).shuffle(1024)
 # Group into batches of `batch_size` and skip incomplete batches, prefetch the next sample to improve latency.
-train_ds = train_ds.batch(batch_size, drop_remainder=True).prefetch(1)
+train_ds = train_ds.batch(batch_size, drop_remainder=True).prefetch(AUTOTUNE)
 # Group into batches of `batch_size` and skip incomplete batches, prefetch the next sample to improve latency.
-test_ds = test_ds.batch(batch_size, drop_remainder=True).prefetch(1)
+test_ds = test_ds.batch(batch_size, drop_remainder=True).prefetch(AUTOTUNE)
 
 
 # Define the model
