@@ -2,7 +2,6 @@ import jax
 devices = jax.devices()  # Import JAX to get the available devices.
 print(f"Using devices: {devices}")  # Print the devices to be used.
 
-import jax.numpy as jnp
 import optax
 
 from flax import nnx
@@ -17,6 +16,10 @@ from PIL import Image
 import io
 import grain.python as pygrain
 import grain
+
+num_epochs = 10
+batch_size = 32
+num_workers = 0
 
 train_file_path = "dataset/mnist/train-00000-of-00001.parquet"
 test_file_path = "dataset/mnist/test-00000-of-00001.parquet"
@@ -41,8 +44,6 @@ class Dataset:
     def __getitem__(self, index):
         return convert_to_numpy(self.df.iloc[index])
 
-num_epochs = 10
-batch_size = 32
 
 mnist_train = Dataset(mnist_train_df)
 mnist_test = Dataset(mnist_test_df)
@@ -61,7 +62,6 @@ test_sampler = grain.samplers.IndexSampler(
     seed=2,
 )
 
-num_workers = 0
 train_dl = grain.DataLoader(
     data_source=mnist_train,
     sampler=train_sampler,

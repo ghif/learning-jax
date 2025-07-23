@@ -2,11 +2,8 @@ import jax
 devices = jax.devices()  # Import JAX to get the available devices.
 print(f"Using devices: {devices}")  # Print the devices to be used.
 
-import jax.numpy as jnp
 import optax
 
-# import tensorflow_datasets as tfds  # TFDS to download MNIST.
-# import tensorflow as tf  # TensorFlow / `tf.data` operations.
 from flax import nnx
 from functools import partial  # For partial function application.
 
@@ -19,6 +16,10 @@ from PIL import Image
 import io
 import grain.python as pygrain
 import grain
+
+num_epochs = 10
+batch_size = 32
+num_workers = 8 # for parallel data loading with multi-device accelerators
 
 train_file_path = "dataset/mnist/train-00000-of-00001.parquet"
 test_file_path = "dataset/mnist/test-00000-of-00001.parquet"
@@ -43,63 +44,35 @@ class Dataset:
     def __getitem__(self, index):
         return convert_to_numpy(self.df.iloc[index])
 
-
-# class MySource(grain.sources.RandomAccessDataSource):
-#     def __init__(self):
-#         self._data = [0, 1, 2, 3, 4, 5, 6, 7, 8]
-    
-#     def __getitem__(self, index):
-#         return self._data[index]
-    
-#     def __len__(self):
-#         return len(self._data)
-
-# source = MySource()
-# dataset = (
-#     grain.MapDataset.source(source)
-#     .shuffle(seed=10) # Shuffle globally
-#     .map(lambda x: x + 1) # Map each element
-#     .batch(batch_size=2, drop_remainder=True)
-# )
-
-# for i, batch in enumerate(dataset):
-#     print(f"Batch {i}: {batch}")
-
-# mnist_dataset
-
-# # tf.random.set_seed(0)  # Set the random seed for reproducibility.
-
-# # train_steps = 1200
-num_epochs = 10
-# # eval_every = 200
-batch_size = 32
-
 mnist_train = Dataset(mnist_train_df)
 mnist_test = Dataset(mnist_test_df)
 
-sampler = grain.samplers.SequentialSampler(
+train_sampler = grain.samplers.IndexSampler(
     num_records=len(mnist_train),
-    shard_options=pygrain.NoSharding()
+    shard_options=pygrain.NoSharding(),
+    shuffle=True,
+    num_epochs=num_epochs,
+    seed=0,
+)
+test_sampler = grain.samplers.IndexSampler(
+    num_records=len(mnist_test),
+    shard_options=pygrain.NoSharding(),
+    num_epochs=1,
+    seed=2,
 )
 
-num_workers = 8
 train_dl = grain.DataLoader(
     data_source=mnist_train,
-    sampler=sampler,
+    sampler=train_sampler,
     operations=[pygrain.Batch(batch_size=batch_size, drop_remainder=True)],
-    worker_count=num_workers,
+    worker_count=num_workers
 )
-
 test_dl = grain.DataLoader(
     data_source=mnist_test,
-    sampler=sampler,
+    sampler=test_sampler,
     operations=[pygrain.Batch(batch_size=batch_size, drop_remainder=True)],
-    worker_count=num_workers,
+    worker_count=num_workers
 )
-
-# for batch in train_dl:
-#     print(f"Train batch: {batch}")
-
 # train_ds: tf.data.Dataset = tfds.load('mnist', split='train')
 # test_ds: tf.data.Dataset = tfds.load('mnist', split='test')
 
@@ -198,89 +171,48 @@ print(nnx.display(optimizer))
 
 elapsed_times = []
 
-for epoch in range(num_epochs):
-    for step, batch in enumerate(train_dl):
-        # Run the optimization for one step and make a stateful update to the following:
-        # - The train state's model parameters
-        # - The optimizer state
-        # - The training loss and accuracy batch metrics
-        start_t = time.time()
-        train_step(model, optimizer, metrics, batch)
-        elapsed_t = time.time() - start_t
-
-        elapsed_times.append(elapsed_t)
-    # end of epoch
-
-    # Log training metrics.
-    for metric, value in metrics.compute().items():
-        metrics_history[f'train_{metric}'].append(value)
-    metrics.reset()
-
-    train_time = np.sum(elapsed_times)
-    metrics_history['train_time'].append(train_time)
-    elapsed_times = []  # Reset the elapsed times for the next epoch.
-
-    # Compute the metrics on the test set after each training epoch.
-    for test_batch in test_dl:
-        eval_step(model, metrics, test_batch)
-    
-    # Log test metrics.
-    for metric, value in metrics.compute().items():
-        metrics_history[f'test_{metric}'].append(value)
-    metrics.reset()  # Reset the metrics for the next training epoch.
-
-    print(
-        f"[Epoch {epoch + 1}/{num_epochs} -- Train time: {train_time:.3f} secs]:  "
-        f"Train loss: {metrics_history['train_loss'][-1]:.4f}, "
-        f"Train accuracy: {metrics_history['train_accuracy'][-1]:.4f}, "
-        f"Test loss: {metrics_history['test_loss'][-1]:.4f}, "
-        f"Test accuracy: {metrics_history['test_accuracy'][-1]:.4f}"
-    )
-
-
 # num_steps_per_epoch = train_ds.cardinality().numpy() // num_epochs
-# num_steps_per_epoch = len(mnist_train) // num_epochs
-
-
+num_steps_per_epoch = len(mnist_train) // batch_size
 
 # for step, batch in enumerate(train_ds.as_numpy_iterator()):
-#     # Run the optimization for one step and make a stateful update to the following:
-#     # - The train state's model parameters
-#     # - The optimizer state
-#     # - The training loss and accuracy batch metrics
-#     start_t = time.time()
-#     train_step(model, optimizer, metrics, batch)
-#     elapsed_t = time.time() - start_t
+for step, batch in enumerate(train_dl):
+    # Run the optimization for one step and make a stateful update to the following:
+    # - The train state's model parameters
+    # - The optimizer state
+    # - The training loss and accuracy batch metrics
+    start_t = time.time()
+    train_step(model, optimizer, metrics, batch)
+    elapsed_t = time.time() - start_t
 
-#     elapsed_times.append(elapsed_t)
+    elapsed_times.append(elapsed_t)
 
-#     if (step + 1) % num_steps_per_epoch == 0:
-#         # Log training metrics.
-#         for metric, value in metrics.compute().items():
-#             metrics_history[f'train_{metric}'].append(value)
-#         metrics.reset()  # Reset the metrics for the test set.
+    if (step + 1) % num_steps_per_epoch == 0:
+        # Log training metrics.
+        for metric, value in metrics.compute().items():
+            metrics_history[f'train_{metric}'].append(value)
+        metrics.reset()  # Reset the metrics for the test set.
 
-#         train_time = np.sum(elapsed_times)
-#         metrics_history['train_time'].append(train_time)
-#         elapsed_times = []  # Reset the elapsed times for the next epoch.
+        train_time = np.sum(elapsed_times)
+        metrics_history['train_time'].append(train_time)
+        elapsed_times = []  # Reset the elapsed times for the next epoch.
         
-#         # Compute the metrics on the test set after each training epoch.
-#         # for test_batch in test_ds.as_numpy_iterator():
-#         for test_batch in test_dl:
-#             eval_step(model, metrics, test_batch)
+        # Compute the metrics on the test set after each training epoch.
+        # for test_batch in test_ds.as_numpy_iterator():
+        for test_batch in test_dl:
+            eval_step(model, metrics, test_batch)
         
-#         # Log test metrics.
-#         for metric, value in metrics.compute().items():
-#             metrics_history[f'test_{metric}'].append(value)
-#         metrics.reset()  # Reset the metrics for the next training epoch.
+        # Log test metrics.
+        for metric, value in metrics.compute().items():
+            metrics_history[f'test_{metric}'].append(value)
+        metrics.reset()  # Reset the metrics for the next training epoch.
 
-#         print(
-#             f"[Epoch {step // num_steps_per_epoch + 1}/{num_epochs} -- Train time: {train_time:.3f} secs]:  "
-#             f"Train loss: {metrics_history['train_loss'][-1]:.4f}, "
-#             f"Train accuracy: {metrics_history['train_accuracy'][-1]:.4f}, "
-#             f"Test loss: {metrics_history['test_loss'][-1]:.4f}, "
-#             f"Test accuracy: {metrics_history['test_accuracy'][-1]:.4f}"
-#         )
+        print(
+            f"[Epoch {step // num_steps_per_epoch + 1}/{num_epochs} (#steps: {step}) -- Train time: {train_time:.3f} secs]:  "
+            f"Train loss: {metrics_history['train_loss'][-1]:.4f}, "
+            f"Train accuracy: {metrics_history['train_accuracy'][-1]:.4f}, "
+            f"Test loss: {metrics_history['test_loss'][-1]:.4f}, "
+            f"Test accuracy: {metrics_history['test_accuracy'][-1]:.4f}"
+        )
 
 
     # if step > 0 and (step % eval_every == 0 or step == train_steps - 1):  # One training epoch has passed.
