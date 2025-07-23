@@ -82,17 +82,24 @@ sampler = grain.samplers.SequentialSampler(
     shard_options=pygrain.NoSharding()
 )
 
+index_sampler = grain.samplers.IndexSampler(
+    num_records=len(mnist_train),
+    shuffle=True,
+    num_epochs=None, # Infinite epochs
+    seed=42
+)
+
 num_workers = 0
 train_dl = grain.DataLoader(
     data_source=mnist_train,
-    sampler=sampler,
+    sampler=index_sampler,
     operations=[pygrain.Batch(batch_size=batch_size, drop_remainder=True)],
     worker_count=num_workers,
 )
 
 test_dl = grain.DataLoader(
     data_source=mnist_test,
-    sampler=sampler,
+    sampler=index_sampler,
     operations=[pygrain.Batch(batch_size=batch_size, drop_remainder=True)],
     worker_count=num_workers,
 )
