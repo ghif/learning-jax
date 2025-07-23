@@ -16,8 +16,8 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 import io
-import grain.python as pygrain
-import grain
+# import grain.python as pygrain
+# import grain
 
 num_epochs = 10
 batch_size = 32
